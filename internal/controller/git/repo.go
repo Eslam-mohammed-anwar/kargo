@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	libExec "github.com/akuity/kargo/internal/exec"
 )
@@ -122,6 +123,22 @@ func (r *repo) clone(opts *CloneOptions) error {
 	}
 	if opts.Depth > 0 {
 		args = append(args, "--depth", fmt.Sprint(opts.Depth))
+	}
+	err := r.runClone(args, opts.Filter)
+	// Some servers fail partial clones with "could not fetch <commit> from
+	// promisor remote" (akuity/kargo#5677). Fall back to a full clone.
+	if err != nil && opts.Filter != "" && strings.Contains(err.Error(), "promisor remote") {
+		if rmErr := os.RemoveAll(r.dir); rmErr != nil {
+			return fmt.Errorf("error removing %q before retrying clone: %w", r.dir, rmErr)
+		}
+		err = r.runClone(args, "")
+	}
+	return err
+}
+
+func (r *repo) runClone(args []string, filter string) error {
+	if filter != "" {
+		args = append(args, "--filter", filter)
 	}
 	args = append(args, r.url, r.dir)
 	cmd := r.buildGitCommand(args...)
